@@ -116,15 +116,21 @@ int main(void)
   MX_RTC_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
-  TM1637_init(true,TM1637_BRIGHTNESS_MAX);
-  TM1637_display_digit(0,0);
-  TM1637_display_digit(1,3);
+	TM1637_init(true,TM1637_BRIGHTNESS_MAX);
+	TM1637_display_digit(0,1);
+	TM1637_display_digit(1,2);
+	TM1637_display_digit(2,3);
+	TM1637_display_digit(3,4);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    static uint8_t colon;
+    colon++;
+	HAL_Delay(1000);
+	TM1637_display_colon(colon &1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -356,7 +362,7 @@ static void MX_TIM17_Init(void)
   htim17.Instance = TIM17;
   htim17.Init.Prescaler = 0;
   htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim17.Init.Period = 0;
+  htim17.Init.Period = 0xFFFF;
   htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim17.Init.RepetitionCounter = 0;
   htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -365,7 +371,7 @@ static void MX_TIM17_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM17_Init 2 */
-
+  HAL_TIM_Base_Start(&htim17);
   /* USER CODE END TIM17_Init 2 */
 
 }

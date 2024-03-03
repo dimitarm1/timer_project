@@ -54,6 +54,8 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+enum states {stopped, waiting, working, cooling, show_wrk_hours, set_pre_time, clear_time};
+uint8_t current_state = 0;
 
 /* USER CODE END PV */
 
@@ -68,7 +70,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
-
+void process_key(uint8_t key);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -116,11 +118,13 @@ int main(void)
   MX_RTC_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
-	TM1637_init(true,TM1637_BRIGHTNESS_MAX);
-	TM1637_display_digit(0,1);
-	TM1637_display_digit(1,2);
-	TM1637_display_digit(2,3);
-	TM1637_display_digit(3,4);
+  TM1637_init(true,TM1637_BRIGHTNESS_MAX);
+  HAL_Delay(100);
+  TM1637_init(true,TM1637_BRIGHTNESS_MAX);
+  TM1637_display_digit(0,10);
+  TM1637_display_digit(1,11);
+  TM1637_display_digit(2,12);
+  TM1637_display_digit(3,0);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -128,12 +132,25 @@ int main(void)
   while (1)
   {
     static uint8_t colon;
+    static uint8_t last_key = 0;
     colon++;
-	HAL_Delay(1000);
+	HAL_Delay(10);
 	TM1637_display_colon(colon &1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+	uint8_t key = TM1637_getKeys();
+	if(key > 0) {
+		TM1637_display_digit(3,key);
+	}
+	if(last_key != key) {
+		last_key = key;
+		if(key) {
+			process_key(key);
+		}
+	}
+	HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
 }
@@ -486,6 +503,9 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void process_key(uint8_t key) {
+
+}
 
 /* USER CODE END 4 */
 

@@ -53,7 +53,13 @@ const uint8_t _digit2segments[] =
 	0x7D, // 6
 	0x07, // 7
 	0x7F, // 8
-	0x6F  // 9
+	0x6F,  // 9
+    0x77,		/* A */
+    0x7c,		/* B */
+    0x39,		/* C */
+    0x5e,		/* D */
+    0x79,		/* E */
+    0x71,		/* F */
 };
 
 void
@@ -94,7 +100,7 @@ TM1637_display_segments(const uint8_t position, const uint8_t segments)
 void
 TM1637_display_digit(const uint8_t position, const uint8_t digit)
 {
-	uint8_t segments = (digit < 10 ? _digit2segments[digit] : 0x00);
+	uint8_t segments = ( _digit2segments[digit & 0x0f]);
 
 	if (position == 0x01) {
 		segments = segments | (_segments & 0x80);
@@ -148,7 +154,7 @@ TM1637_send_command(const uint8_t value)
 void
 TM1637_start(void)
 {
-
+	TM1637_DIO_OUTPUT()
 	TM1637_DIO_HIGH();
 	TM1637_CLK_HIGH();
 	delay_us(TM1637_DELAY_US);
@@ -175,7 +181,7 @@ uint8_t
 TM1637_write_byte(uint8_t value)
 {
 	uint8_t i, ack;
-
+	TM1637_DIO_OUTPUT()
 	for (i = 0; i < 8; ++i, value >>= 1) {
 		TM1637_CLK_LOW();
 		delay_us(TM1637_DELAY_US);
@@ -211,4 +217,102 @@ TM1637_write_byte(uint8_t value)
 	TM1637_DIO_OUTPUT();
 
 	return ack;
+}
+
+/*!
+ * \brief Read byte from TM1637.
+ * \return 8-bit value.
+ */
+uint8_t TM1637_read_byte()
+{
+    uint8_t retval = 0;
+
+    // Prepare DIO to read data
+    TM1637_DIO_HIGH();
+    TM1637_DIO_INPUT();
+    delay_us(TM1637_DELAY_US);
+
+    // Data is shifted out by the TM1637 on the CLK falling edge
+    for (uint8_t bit = 0; bit < 8; bit++) {
+        TM1637_CLK_HIGH();
+        delay_us(TM1637_DELAY_US);
+
+        // Read next bit
+        retval <<= 1;
+        if (TM1637_DIO_READ()) {
+            retval |= 0x01;
+        }
+
+        TM1637_CLK_LOW();
+        delay_us(TM1637_DELAY_US);
+    }
+    // Return DIO to output mode
+    TM1637_DIO_OUTPUT();
+    delay_us(TM1637_DELAY_US);
+
+    // Dummy ACK
+    TM1637_DIO_LOW();
+    delay_us(TM1637_DELAY_US);
+
+    TM1637_CLK_HIGH();
+    delay_us(TM1637_DELAY_US);
+    TM1637_CLK_LOW();
+    delay_us(TM1637_DELAY_US);
+
+    TM1637_DIO_HIGH();
+    delay_us(TM1637_DELAY_US);
+
+    return retval;
+}
+
+// -------------------------------------------------------------------------------------------------
+
+uint8_t TM1637_getKeys()
+{
+    uint8_t keyCode;
+
+    TM1637_start();
+    TM1637_write_byte(TM1637_CMD_SET_DATA | TM1637_SET_DATA_READ);
+    TM1637_start();
+    keyCode = TM1637_read_byte();
+    TM1637_stop();
+
+    // Check if key is down (at least one bit is zero)
+    if (keyCode != 0xFF) {
+        // Invert keyCode:
+        //    Bit |  7  6  5  4  3  2  1  0
+        //  ------+-------------------------
+        //   From | S0 S1 S2 K1 K2 1  1  1
+        //     To | S0 S1 S2 K1 K2 0  0  0
+        keyCode = ~keyCode;
+
+        // Shift bits to:
+        //    Bit | 7  6  5  4  3  2  1  0
+        //  ------+------------------------
+        //     To | 0  0  0  0  K2 S2 S1 S0
+//        keyCode = (uint8_t)((keyCode & 0x80) >> 7 |
+//                            (keyCode & 0x40) >> 5 |
+//                            (keyCode & 0x20) >> 3 |
+//                            (keyCode & 0x08));
+        switch(keyCode){
+        case 0x08:
+        	keyCode = KEY_UP; // SW2
+        	break;
+        case 0x10:
+        	keyCode = KEY_DOWN; // SW4
+        	break;
+        case 0x90:
+        	keyCode = KEY_START; // SW3
+        	break;
+        case 0x88:
+        	keyCode = KEY_STOP; // SW1
+        	break;
+        default:
+        	keyCode = 0; //Unknown
+        	break;
+        }
+    }
+    else keyCode = 0;
+
+    return keyCode;
 }

@@ -32,9 +32,10 @@
 #define	TM1637_POSITION_MAX		(4)
 
 // TM1637 commands
-#define	TM1637_CMD_SET_DATA		0x40
-#define	TM1637_CMD_SET_ADDR		0xC0
-#define	TM1637_CMD_SET_DSIPLAY		0x80
+#define	TM1637_CMD_SET_DATA		    0x40   //!< Display data command
+#define	TM1637_CMD_SET_ADDR		    0xC0   //!< Display address command
+#define	TM1637_CMD_SET_DSIPLAY		0x80   //!< Display control command
+
 
 // TM1637 data settings (use bitwise OR to contruct complete command)
 #define	TM1637_SET_DATA_WRITE		0x00 // write data to the display register
@@ -47,6 +48,23 @@
 // TM1637 display control command set (use bitwise OR to consruct complete command)
 #define	TM1637_SET_DISPLAY_OFF		0x00 // off
 #define	TM1637_SET_DISPLAY_ON		0x08 // on
+
+// Control command bits
+#define TM1637_CTRL_PULSE_1_16          0x00 //!< Pulse width 1/16
+#define TM1637_CTRL_PULSE_2_16          0x01 //!< Pulse width 2/16
+#define TM1637_CTRL_PULSE_4_16          0x02 //!< Pulse width 4/16
+#define TM1637_CTRL_PULSE_10_16         0x03 //!< Pulse width 10/16
+#define TM1637_CTRL_PULSE_11_16         0x04 //!< Pulse width 11/16
+#define TM1637_CTRL_PULSE_12_16         0x05 //!< Pulse width 12/16
+#define TM1637_CTRL_PULSE_13_16         0x06 //!< Pulse width 13/16
+#define TM1637_CTRL_PULSE_14_16         0x07 //!< Pulse width 14/16
+
+
+#define KEY_UP    2 // SW2
+#define KEY_DOWN  4 // SW4
+#define KEY_START 3 // SW3
+#define KEY_STOP  1 // SW1
+
 
 
 /**
@@ -105,5 +123,10 @@ void TM1637_display_colon(const uint8_t value);
  * Clear all segments (including colon).
  */
 void TM1637_clear(void);
+
+/**
+ * Read  keypad
+ */
+uint8_t TM1637_getKeys();
 
 #endif	/* !_ATTINY_TM1637_H_ */

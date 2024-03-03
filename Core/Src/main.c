@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "../../Drivers/tm1637.h"
+#include "eeprom.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,6 +34,17 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+// Virtual addreses
+#define ADDRESS_HOURS_H		1
+#define ADDRESS_HOURS_L		2
+#define ADDRESS_MINUTES		3
+#define ADDRESS_ADDRESSE	4
+#define ADDRESS_PRE_TIME	5
+#define ADDRESS_COOL_TIME	6
+#define ADDRESS_EXT_MODE	7
+#define ADDRESS_TEMP_MIN	8
+#define ADDRESS_TEMP_MAX	9
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,6 +68,62 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 enum states {stopped, waiting, working, cooling, show_wrk_hours, set_pre_time, clear_time};
 uint8_t current_state = 0;
+static uint16_t seconds_counter;
+static uint16_t minutes_counter;
+static uint16_t msec_counter=0;
+
+unsigned char controller_address = 0x0e;
+int curr_status;
+int prev_status;
+int curr_time;
+
+volatile uint32_t g_ADCValue;
+volatile uint32_t raw_temp;
+volatile uint32_t g_ADCMeanValue;
+uint32_t g_MeasurementNumber;
+uint32_t g_Temperature;
+
+uint16_t data = 0;
+unsigned char  time_to_set = 0;
+unsigned int   work_hours[3] = {0,0,0}; //HH HL MM - Hours[2], Minutes[1]
+unsigned char  preset_pre_time = 7;
+unsigned char  preset_cool_time = 3;
+unsigned char  temp_min_threshold;
+unsigned char  temp_max_threshold;
+unsigned char  ext_mode = 0;
+unsigned char  lamps_mode = 0;
+unsigned char  temperature_current;
+unsigned char  last_rx_address;
+unsigned int   error_code;
+int start_counter = 0;
+int last_button = 0;
+int prev_button = 0;
+int display_data;
+int pre_time, main_time, cool_time;
+unsigned int Gv_miliseconds = 0;
+int Gv_UART_Timeout = 1000; // Timeout in mSec
+int pre_time_sent = 0, main_time_sent = 0, cool_time_sent = 0;
+int rx_state= 0;
+
+typedef struct time_str{
+	 uint16_t hours_h;
+	 uint16_t hours_l;
+	 uint16_t minutes;
+}time_str;
+typedef struct settings_str{
+	 uint16_t addresse;
+	 uint16_t pre_time;
+	 uint16_t cool_time;
+	 uint16_t ext_mode;
+	 uint16_t volume;
+	 uint16_t temperatue_max;
+}settings_str;
+typedef struct flash_struct{
+	 time_str time;
+	 settings_str settings;
+}flash_struct;
+flash_struct flash_data;
+uint16_t VirtAddVarTab[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14};//sizeof(flash_data)/2];
 
 /* USER CODE END PV */
 
@@ -70,7 +138,17 @@ static void MX_USART2_UART_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
+
 void process_key(uint8_t key);
+void new_read_eeprom(void);
+void new_write_eeprom(void);
+float analog2tempBed(int raw);
+int ToBCD(int value);
+int FromBCD(int value);
+void write_stored_time(void);
+void write_settings(void);
+void read_settings(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -135,7 +213,7 @@ int main(void)
     static uint8_t last_key = 0;
     colon++;
 	HAL_Delay(10);
-	TM1637_display_colon(colon &1);
+	TM1637_display_colon(seconds_counter &1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -150,6 +228,10 @@ int main(void)
 			process_key(key);
 		}
 	}
+	TM1637_display_digit(0,minutes_counter/10);
+	TM1637_display_digit(1,minutes_counter %10);
+	TM1637_display_digit(2,seconds_counter/10);
+	TM1637_display_digit(3,seconds_counter%10);
 	HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
@@ -505,6 +587,310 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void process_key(uint8_t key) {
 
+}
+
+
+
+void read_settings(void)
+{
+	uint8_t result = 0;
+	uint16_t  data;
+
+	result += EE_ReadVariable(ADDRESS_ADDRESSE,  &data);
+	controller_address = data;
+	result += EE_ReadVariable(ADDRESS_PRE_TIME,  &data);
+	preset_pre_time = data;
+	result += EE_ReadVariable(ADDRESS_COOL_TIME,  &data);
+	preset_cool_time = data;
+	result += EE_ReadVariable(ADDRESS_EXT_MODE,  &data);
+	ext_mode = data;
+	result += EE_ReadVariable(ADDRESS_TEMP_MIN,  &data);
+	temp_min_threshold = data;
+	result += EE_ReadVariable(ADDRESS_TEMP_MAX,  &data);
+	temp_max_threshold = data;
+
+	if(result)
+	{
+		// Set defaults
+		preset_pre_time = 7;
+		preset_cool_time = 3;
+		controller_address = 14;
+		temp_min_threshold = 17;
+		temp_max_threshold = 85;
+		ext_mode = 0;
+		work_hours[0] = 0;
+		work_hours[1] = 0;
+		work_hours[2] = 0;
+		write_settings();
+		write_stored_time();
+	}
+}
+void read_stored_time(void)
+{
+	uint16_t  data;
+	if(!EE_ReadVariable(ADDRESS_HOURS_H,  &data))
+	{
+		work_hours[0] = data;
+	}
+	else
+	{
+		work_hours[0] = 0;
+	}
+	if(!EE_ReadVariable(ADDRESS_HOURS_L,  &data))
+	{
+		work_hours[1] = data;
+	}
+	else
+	{
+		work_hours[1] = 0;
+	}
+	if(!EE_ReadVariable(ADDRESS_MINUTES,  &data))
+	{
+		work_hours[2] = data;
+	}
+	else
+	{
+		work_hours[2] = 0;
+	}
+}
+
+void write_settings(void)
+{
+	uint16_t counter;
+	for(counter = 0; counter < 3; counter++)
+	{
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_ADDRESSE,  controller_address))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_PRE_TIME,  preset_pre_time))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_COOL_TIME,  preset_cool_time))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_EXT_MODE,  ext_mode))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_TEMP_MIN,  temp_min_threshold))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_TEMP_MAX,  temp_max_threshold))
+		{
+			// Second chance
+			continue;
+		}
+		break;
+	}
+}
+
+void write_stored_time(void)
+{
+	uint16_t counter;
+	for(counter = 0; counter < 3; counter++)
+	{
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_HOURS_H,  work_hours[0]))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_HOURS_L,  work_hours[1]))
+		{
+			// Second chance
+			continue;
+		}
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_MINUTES,  work_hours[2]))
+		{
+			// Second chance
+			continue;
+		}
+		break;
+	}
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
+  {
+	//CorrectedValue = (((RawValue � RawLow) * ReferenceRange) / RawRange) + ReferenceLow
+      g_ADCValue = HAL_ADC_GetValue(AdcHandle);
+      g_ADCMeanValue = (g_ADCMeanValue*9 + g_ADCValue)/10;
+      raw_temp = 1024 - g_ADCValue;
+      g_MeasurementNumber++;
+      g_Temperature = analog2tempBed(g_ADCValue); // Must be an error...
+      if(g_Temperature > 200)
+      {
+    	  g_Temperature = 0;
+      }
+//      g_Temperature = (g_Temperature*9 + (((g_ADCValue - ADC_0_DEGREE_VALUE)*366)/(ADC_36_6_DEGREE_VALUE - ADC_0_DEGREE_VALUE)) + 0)/10;
+  }
+
+void usart1_IT_handler()
+{
+	 uint32_t isrflags   = READ_REG(USART2->ISR);
+	 uint32_t cr1its     = READ_REG(USART2->CR1);
+	 uint32_t cr3its     = READ_REG(USART2->CR3);
+	 uint32_t errorflags = 0x00U;
+//	 uint32_t dmarequest = 0x00U;
+	 enum rxstates {rx_state_none, rx_state_pre_time, rx_state_main_time, rx_state_cool_time, rx_state_get_checksum};
+
+	 /* If no error occurs */
+	 errorflags = (isrflags & (uint32_t)(USART_ISR_PE | USART_ISR_FE | USART_ISR_ORE | USART_ISR_NE));
+	 if(errorflags == RESET)
+	 {
+		 /* UART in mode Receiver -------------------------------------------------*/
+		 if(((isrflags & USART_CR1_RXNEIE) != RESET) && ((cr1its & USART_CR1_RXNEIE) != RESET))
+		 {
+			 data = USART2->RDR & (uint16_t)0x00FF;
+			 if ((data & 0x80)){
+			 		last_rx_address = (data >> 3U)&0x0f;
+			 		unsigned char addr_is_ok = 0;
+		 			addr_is_ok = (last_rx_address == controller_address);
+			 		if (!addr_is_ok) return;
+			 		// Command
+			 		if(addr_is_ok){
+			 			Gv_UART_Timeout = 1500;
+			 		}
+			 		if((data & 0x07) == 0x00 ){ // Status
+			 			data = (curr_status<<6)| ToBCD(curr_time);
+			 //			data = (STATUS_WORKING<<6)|4;
+			 			USART1->TDR = data;
+			 		}
+			 		else if ((data & 0x07) == 1) //Command 1 - Start
+			 		{
+			 			pre_time = 0;
+//			 			update_status();
+			 		}
+			 		else if ((data & 0x07) == 2)  //Command 2 == Pre_time_set
+			 		{
+			 			rx_state = rx_state_pre_time;
+			 		}
+			 		else if ((data & 0x07) == 5) //Command 5 == Main_time_set
+			 		{
+			 			rx_state = rx_state_main_time;
+			 		}
+			 		else if ((data & 0x07) == 3) //Command 3 == Cool_time_set
+			 		{
+			 			rx_state = rx_state_cool_time;
+			 		}
+
+			 	} else if (rx_state){
+			 		// payload
+			 		int time_in_hex = ToBCD(main_time_sent);
+			 		if(rx_state == rx_state_get_checksum){
+			 			int checksum = (pre_time_sent + cool_time_sent  - time_in_hex - 5) & 0x7F;
+			 			if(	data == checksum){
+			 				pre_time = pre_time_sent;
+			 				main_time = main_time_sent;
+			 				cool_time = cool_time_sent;
+//			 				update_status();
+			 				Gv_miliseconds = 0;
+			 			}
+			 			rx_state = 0;
+			 		}
+			 		if(rx_state == rx_state_pre_time){
+			 			pre_time_sent = data;
+			 			rx_state = 0;
+			 		}
+			 		if(rx_state == rx_state_main_time){
+			 			main_time_sent = FromBCD(data);
+			 			rx_state = 0;
+			 		}
+			 		if(rx_state == rx_state_cool_time){
+			 			cool_time_sent = data;
+			 			rx_state = rx_state_get_checksum;
+			 			int checksum = (pre_time_sent + cool_time_sent  - time_in_hex - 5) & 0x7F;
+			 			data = checksum;
+			 			USART2->TDR = data;
+			 		}
+
+
+			 	}
+		 }
+	 }
+	 else
+	 {
+		 rx_state= 0;
+		 USART2->ISR = 0; // Clear Errors
+	 }
+}
+
+
+void user_systick_callback() {
+
+	msec_counter++;
+	if(msec_counter > 999) {
+		msec_counter = 0;
+		seconds_counter++;
+		if(seconds_counter > 59) {
+			seconds_counter = 0;
+			minutes_counter++;
+			if(minutes_counter > 99) {
+				minutes_counter = 0;
+			}
+		}
+	}
+}
+
+// 10k thermistor Chineese
+const float temptable_10[][2] = {
+  {    1 , 430 },
+  {   0x67A , 100 },
+  {  0x835, 36 },
+  {  0xA0A,  20 },
+  {  0xAA0,  13 },
+  {  0xCCC,  0 },
+};
+#define COUNT(a) (sizeof(a)/sizeof(*a))
+#define BEDTEMPTABLE temptable_10
+#define BEDTEMPTABLE_LEN COUNT(BEDTEMPTABLE)
+float analog2tempBed(int raw) {
+
+    float celsius = 0;
+    unsigned char i;
+
+    for (i = 1; i < BEDTEMPTABLE_LEN; i++) {
+      if ((BEDTEMPTABLE[i][0]) > raw) {
+        celsius  = BEDTEMPTABLE[i - 1][1] +
+                   (raw - BEDTEMPTABLE[i - 1][0]) *
+                   (float)(BEDTEMPTABLE[i][1] - BEDTEMPTABLE[i - 1][1]) /
+                   (float)(BEDTEMPTABLE[i][0] - BEDTEMPTABLE[i - 1][0]);
+        break;
+      }
+    }
+
+    // Overflow: Set to last value in the table
+    if (i == BEDTEMPTABLE_LEN) celsius = BEDTEMPTABLE[i - 1][1];
+
+    return celsius;
+
+}
+
+int ToBCD(int value){
+	int digits[3];
+	int result;
+	digits[0] = value %10;
+	digits[1] = (value/10) % 10;
+	digits[2] = (value/100) % 10;
+	result = digits[0] | (digits[1]<<4) | (digits[2]<<8);
+	return result;
+}
+
+int FromBCD(int value){
+	int digits[3];
+	int result;
+	digits[0] = value & 0x0F;
+	digits[1] = (value>>4) & 0x0F;
+	digits[2] = (value>>8) & 0x0F;
+	result = digits[0] + digits[1]*10 + digits[2]*100;
+	return result;
 }
 
 /* USER CODE END 4 */

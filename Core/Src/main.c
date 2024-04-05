@@ -45,6 +45,23 @@
 #define ADDRESS_TEMP_MIN	8
 #define ADDRESS_TEMP_MAX	9
 
+// Buttons
+#define BUTTON_START     (1)
+#define BUTTON_PLUS      (2)
+#define BUTTON_STOP      (3)
+#define BUTTON_MINUS     (4)
+
+#define STATUS_FREE    (0L)
+#define STATUS_WAITING (3L)
+#define STATUS_WORKING (1L)
+#define STATUS_COOLING (2L)
+#define MULTIPLIER     (1)
+#define START_COUNTER_TIME  (1000L*MULTIPLIER)
+#define ENTER_SERVICE_DELAY (2000L*MULTIPLIER)
+#define SERVICE_NEXT_DELAY  (400*MULTIPLIER)
+#define EXIT_SERVICE_TIME   (1200L*MULTIPLIER)
+#define START_DELAY         (200L*MULTIPLIER)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,7 +83,11 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-enum states {stopped, waiting, working, cooling, show_wrk_hours, set_pre_time, clear_time};
+typedef enum states {state_show_time,state_set_time,state_show_hours,state_enter_service,state_clear_hours,state_address,state_pre_time,state_cool_time}states;
+states state;
+typedef enum modes {mode_null,mode_clear_hours,mode_set_address,mode_set_pre_time,mode_set_cool_time}modes;
+modes service_mode;
+
 uint8_t current_state = 0;
 static uint16_t seconds_counter;
 static uint16_t minutes_counter;
@@ -75,8 +96,8 @@ static uint16_t msec_counter=0;
 unsigned char controller_address = 0x0e;
 int curr_status;
 int prev_status;
-int curr_time;
 
+int flash_counter = 0;
 volatile uint32_t g_ADCValue;
 volatile uint32_t raw_temp;
 volatile uint32_t g_ADCMeanValue;
@@ -95,11 +116,19 @@ unsigned char  lamps_mode = 0;
 unsigned char  temperature_current;
 unsigned char  last_rx_address;
 unsigned int   error_code;
+int flash_mode = 0;
 int start_counter = 0;
 int last_button = 0;
 int prev_button = 0;
 int display_data;
-int pre_time, main_time, cool_time;
+// Timers in seconds
+int pre_time;
+int main_time;
+int cool_time;
+// Current time counter in seconds
+int *curr_time = &pre_time;
+int useUart=0;
+
 unsigned int Gv_miliseconds = 0;
 int Gv_UART_Timeout = 1000; // Timeout in mSec
 int pre_time_sent = 0, main_time_sent = 0, cool_time_sent = 0;
@@ -139,7 +168,9 @@ static void MX_RTC_Init(void);
 static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
 
+void update_status(void);
 void process_key(uint8_t key);
+void ProcessButtons(void);
 void new_read_eeprom(void);
 void new_write_eeprom(void);
 float analog2tempBed(int raw);
@@ -218,20 +249,215 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	uint8_t key = TM1637_getKeys();
-	if(key > 0) {
-		TM1637_display_digit(3,key);
+	last_button = TM1637_getKeys();
+//	if(button > 0) {
+//		TM1637_display_digit(3,key);
+//	}
+
+	//-------------------
+
+	if ((state < state_enter_service) && ((flash_counter >> 4) & 1))
+	{
+//		if (controller_address == 15) {
+//			external_read = (external_read << 1) | (!!(GPIOB->IDR & GPIO_IDR_IDR7));
+//			if (!main_time && (!external_read)) {
+//				if (curr_status != STATUS_COOLING) {
+//					main_time = -1;
+//					cool_time = preset_cool_time;
+//					Gv_miliseconds = 0;
+//					flash_mode = 0;
+//					state = state_set_time;
+//					update_status();
+//				}
+//			}
+//			if (main_time && !~external_read) {
+//				main_time = 0;
+//				Gv_miliseconds = 0;
+//				update_status();
+//			}
+//		}
 	}
-	if(last_key != key) {
-		last_key = key;
-		if(key) {
-			process_key(key);
+	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
+	ProcessButtons();
+	switch (state) {
+	case state_show_time:
+	case state_set_time:
+		if (!pre_time && !main_time && !cool_time) {
+			flash_mode = 0;
+			state = state_set_time;
+			display_data = ToBCD(time_to_set);
+			//				display_data = ToBCD(last_button); //Debug
+		}
+		else if (!pre_time && !main_time && cool_time)
+		{
+			if(flash_counter & 0x20)
+			{
+				display_data = 0xFFF;
+			}
+			else
+			{
+				display_data = ToBCD(abs(cool_time));
+			}
+		}
+		else {
+			state = state_show_time;
+			//				  time_to_set = 0;
+			display_data = ToBCD(abs(main_time));
+			//				display_data = ToBCD(last_button); //Debug
+		}
+		break;
+	case state_show_hours:
+
+		if (flash_mode != 3) {
+			flash_mode = 3; // All flashing
+		}
+		{
+			int index = ((flash_counter / 0x30)) % 8;
+			if ((index < 6) && (index & 1)) {
+				display_data = ToBCD(work_hours[index/2]);
+			}
+			else {
+				display_data = 0xFFF;
+			}
+		}
+		break;
+	case state_enter_service:
+		display_data = service_mode | 0xF0;
+		flash_mode = 0;
+		break;
+
+	case state_clear_hours:
+		//			flash_mode = 3;
+		if ((flash_counter / 0x30) & 1) {
+			display_data = 0xFFC;
+		}
+		else {
+			display_data = 0xFFF;
+		}
+		break;
+	case state_address:
+		flash_mode = 0;
+		if ((flash_counter / 0x30) & 1) {
+			if (controller_address != 15) { // Address 15 reserved for external control
+				display_data = controller_address;
+			}
+			else {
+				display_data = 0xEAF;
+			}
+		}
+		else {
+			display_data = 0xFFA;
+		}
+		break;
+	case state_pre_time:
+		//			flash_mode = 3;
+		if ((flash_counter / 0x30) & 1) {
+			display_data = preset_pre_time;
+		}
+		else {
+			display_data = 0xFF3;
+		}
+		break;
+	case state_cool_time:
+		//			flash_mode = 3;
+		if ((flash_counter / 0x30) & 1) {
+			display_data = preset_cool_time;
+		}
+		else {
+			display_data = 0xFF4;
+		}
+		break;
+	}
+	//		show_digit(display_data);
+	if (state == state_show_time) {
+		if (!(pre_time || main_time || cool_time)) {
+			// Some Paranoia...
+			// turn off all
+//			set_lamps(OFF);
+//			percent_fan1 = 0;
+//			set_fan1(0);
+
+			//				state = state_set_time;
 		}
 	}
-	TM1637_display_digit(0,minutes_counter/10);
-	TM1637_display_digit(1,minutes_counter %10);
-	TM1637_display_digit(2,seconds_counter/10);
-	TM1637_display_digit(3,seconds_counter%10);
+	//
+	//		while (USART_GetFlagStatus(USART1, USART_FLAG_RXNE) == RESET); // wAIT UNTIL RX BUFFER IS EMPTY
+	//		int data =  USART_ReceiveData(USART1);
+	//		USART_SendData(USART1,0x80);
+	//				while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET); // wAIT UNTIL TX BUFFER IS EMPTY
+	if (pre_time) {
+		// Indicate pre_time by moving bars
+//		ShowBarIndicators((flash_counter >> 4) %10, (flash_counter >> 4) % 10);
+	}
+	else if (cool_time) {
+//		ShowBarIndicators(volume_level, fan_level);
+	}
+//	show_level(aqua_fresh_level);
+//	HAL_ADC_Start_IT(&hadc1);
+	HAL_Delay(10);
+
+//		display_data = 0xFFF;
+//		for(int i = 0; i < 9; i++)
+//		{
+//			if (!key_readings[i])
+//			{
+//				display_data = i;
+//				break;
+//			}
+//
+//		}
+
+	//Uncomment to check temperature
+	if ((last_button == BUTTON_STOP) && (curr_status == STATUS_FREE))
+	{
+    	display_data = ToBCD(g_Temperature);
+//			display_data = g_ADCMeanValue;
+	}
+	if(error_code)
+	{
+		display_data = error_code;
+	}
+	TM1637_display_digit(0,display_data & 0x0f);
+	TM1637_display_digit(1,(display_data>>4) & 0x0f);
+	TM1637_display_digit(2,(display_data>>8) & 0x0f);
+	TM1637_display_digit(3,(display_data>>12) & 0x0f);
+	flash_counter++;
+	if(	(temp_max_threshold > 0) && (g_Temperature > 0))
+	{
+		if((g_Temperature > temp_max_threshold))
+		{
+//			percent_fan1 = 10;
+//			set_fan1(percent_fan1);
+			if(curr_status == STATUS_WORKING)
+			{
+				main_time = 0;
+				pre_time = 0;
+				update_status();
+			}
+			error_code = 0xFE1;
+		}
+		else
+		{
+			if((main_time == 0) && (cool_time == 0))
+			{
+//				percent_fan1 = 0;
+//				set_fan1(0);
+			}
+		}
+	}
+	if( (curr_status == STATUS_WORKING) && /*(percent_fan1 == 0) &&*/ (g_Temperature > 70)) // 70 degrees
+	{
+//		percent_fan1 = 3;
+//		set_fan1(percent_fan1);
+	}
+	/* Reload IWDG counter */
+//		IWDG_ReloadCounter();
+	HAL_IWDG_Refresh(&hiwdg);
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET); // Disable external reset connected to PB9
+
+
+	//-------------------
+
 	HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
@@ -759,14 +985,14 @@ void usart1_IT_handler()
 			 			Gv_UART_Timeout = 1500;
 			 		}
 			 		if((data & 0x07) == 0x00 ){ // Status
-			 			data = (curr_status<<6)| ToBCD(curr_time);
+			 			data = (curr_status<<6)| ToBCD(*curr_time/60);
 			 //			data = (STATUS_WORKING<<6)|4;
 			 			USART1->TDR = data;
 			 		}
 			 		else if ((data & 0x07) == 1) //Command 1 - Start
 			 		{
 			 			pre_time = 0;
-//			 			update_status();
+			 			update_status();
 			 		}
 			 		else if ((data & 0x07) == 2)  //Command 2 == Pre_time_set
 			 		{
@@ -787,10 +1013,10 @@ void usart1_IT_handler()
 			 		if(rx_state == rx_state_get_checksum){
 			 			int checksum = (pre_time_sent + cool_time_sent  - time_in_hex - 5) & 0x7F;
 			 			if(	data == checksum){
-			 				pre_time = pre_time_sent;
-			 				main_time = main_time_sent;
-			 				cool_time = cool_time_sent;
-//			 				update_status();
+			 				pre_time = pre_time_sent*60;
+			 				main_time = main_time_sent*60;
+			 				cool_time = cool_time_sent*60;
+			 				update_status();
 			 				Gv_miliseconds = 0;
 			 			}
 			 			rx_state = 0;
@@ -874,23 +1100,334 @@ float analog2tempBed(int raw) {
 }
 
 int ToBCD(int value){
-	int digits[3];
+	int digits[4];
 	int result;
 	digits[0] = value %10;
 	digits[1] = (value/10) % 10;
 	digits[2] = (value/100) % 10;
-	result = digits[0] | (digits[1]<<4) | (digits[2]<<8);
+	digits[2] = (value/1000) % 10;
+	result = digits[0] | (digits[1]<<4) | (digits[2]<<8) | (digits[3]<<12);
 	return result;
 }
 
 int FromBCD(int value){
-	int digits[3];
+	int digits[4];
 	int result;
 	digits[0] = value & 0x0F;
 	digits[1] = (value>>4) & 0x0F;
 	digits[2] = (value>>8) & 0x0F;
-	result = digits[0] + digits[1]*10 + digits[2]*100;
+	digits[3] = (value>>12) & 0x0F;
+	result = digits[0] + digits[1]*10 + digits[2]*100 + digits[3]*1000;
 	return result;
+}
+
+/**
+ * @brief  Manage the activity on buttons
+ * @param  None
+ * @retval None
+ */
+void ProcessButtons(void)
+{
+
+	if (last_button) {
+		if (last_button != prev_button) {
+			switch (last_button) {
+			case BUTTON_START:
+				if(error_code)
+				{
+					error_code = 0;
+				}
+				if (pre_time) {
+					//send_start();
+					Gv_miliseconds = 0;
+					pre_time = 0;
+					state = state_show_time;
+					update_status();
+					if((temp_min_threshold > 0) && (g_Temperature > 0) && (g_Temperature < temp_min_threshold))
+					{
+					}
+					else
+					{
+					}
+				}
+				if (!pre_time && !main_time && !cool_time) {
+					if (time_to_set) {
+						// Send of time moved elsewhere
+						pre_time = preset_pre_time*60;
+						main_time = time_to_set*60;
+						cool_time = preset_cool_time*60;
+						state = state_show_time;
+						time_to_set = 0;
+						Gv_miliseconds = 0;
+						update_status();
+						//						play_message(0);
+					}
+					else {
+
+							// Write EEPROM
+						if (state == state_clear_hours)
+						{
+							work_hours[0] = 0;
+							work_hours[1] = 0;
+							work_hours[2] = 0;
+
+							write_stored_time();
+							start_counter = 0;
+							service_mode = mode_null;
+						}
+						else if (state > state_enter_service)
+						{
+							write_settings();
+							service_mode = mode_null;
+							if (state == state_address) {
+//								init_periph();
+							}
+							start_counter = 0;
+						}
+						else {
+							start_counter = START_COUNTER_TIME;
+						}
+						state = state_show_hours;
+						flash_counter = 0;
+					}
+				}
+				break;
+			case BUTTON_STOP:
+				if (curr_status == STATUS_WORKING) {
+					main_time = 0;
+					pre_time = 0;
+					update_status();
+//					percent_fan1 = 10;
+//					set_fan1(percent_fan1);
+				}
+				if (state >= state_enter_service) {
+					start_counter = 0;
+					state = state_show_time;
+					service_mode = mode_null;
+				}
+				break;
+			case BUTTON_PLUS:
+			{
+				if (state == state_show_hours) {
+					state = state_set_time;
+					start_counter = 0;
+				}
+				if (state == state_set_time) {
+					if (time_to_set < 60L) { // Limit max time
+						if (!useUart) time_to_set++;
+					}
+					else
+					{
+						while (1); // Reboot device using WatchDog
+					}
+				}
+				else if (state > state_enter_service) {
+					start_counter = EXIT_SERVICE_TIME;
+					switch (service_mode) {
+					case mode_set_address:
+						if (controller_address < 15) controller_address++;
+						break;
+					case mode_set_pre_time:
+						if (preset_pre_time < 9) preset_pre_time++;
+						break;
+					case mode_set_cool_time:
+						if (preset_cool_time < 9) preset_cool_time++;
+						break;
+					default:
+						break;
+					}
+				}
+
+			}
+			break;
+			case BUTTON_MINUS:
+				if (state == state_show_hours) {
+					state = state_set_time;
+					start_counter = 0;
+				}
+				if (state == state_set_time) {
+					if (time_to_set) {
+						if (!useUart)  time_to_set--;
+					}
+				}
+				else if (state > state_enter_service) {
+					start_counter = EXIT_SERVICE_TIME;
+					switch (service_mode) {
+					case mode_set_address:
+						if (controller_address) controller_address--;
+						break;
+					case mode_set_pre_time:
+						if (preset_pre_time) preset_pre_time--;
+						break;
+					case mode_set_cool_time:
+						if (preset_cool_time) preset_cool_time--;
+						break;
+					default:
+						break;
+					}
+				}
+				//				if(selected_led_bits & LED_FAN2_L){
+				//					if(percent_fan2) percent_fan2 = 0;
+				//					set_fan2(percent_fan2);
+				//				} else if(selected_led_bits & LED_FAN1_L){
+				//					if(percent_fan1) percent_fan1-=25;
+				//					set_fan1(percent_fan1);
+				//				}
+				//				else if(selected_led_bits & LED_LICEVI_L){
+				//					if(percent_licevi) percent_licevi=0;
+				//					set_licevi_lamps(percent_licevi);
+				//					update_status();
+				//				}
+
+				break;
+			default:
+				while (0);
+			}
+		}
+	}
+	prev_button = last_button;
+
+	if (last_button == BUTTON_START)
+	{
+		// LED1_ON;
+		if (start_counter < (START_COUNTER_TIME + ENTER_SERVICE_DELAY + 6 * SERVICE_NEXT_DELAY)) start_counter++;
+		if (start_counter == START_COUNTER_TIME + ENTER_SERVICE_DELAY) {
+			if (curr_status == STATUS_FREE && (state < state_enter_service))
+			{
+				state = state_enter_service;
+				service_mode = mode_clear_hours; // Clear Hours
+			}
+		}
+		if (state == state_enter_service) {
+			if (start_counter == START_COUNTER_TIME + ENTER_SERVICE_DELAY + 1 * SERVICE_NEXT_DELAY) {
+				service_mode = mode_set_address; //
+			}
+			else if (start_counter == START_COUNTER_TIME + ENTER_SERVICE_DELAY + 2 * SERVICE_NEXT_DELAY) {
+				service_mode = mode_set_pre_time; //
+			}
+			else if (start_counter == START_COUNTER_TIME + ENTER_SERVICE_DELAY + 3 * SERVICE_NEXT_DELAY) {
+				service_mode = mode_set_cool_time; //
+			}
+		}
+//		set_start_out_signal(1);
+	}
+	else
+	{
+//		set_start_out_signal(0);
+		if (start_counter) {
+			if (state == state_show_hours) {
+				start_counter--;
+				if (!start_counter) {
+					state = state_show_time;
+				}
+			}
+			else if (state >= state_enter_service) {
+				if (state == state_enter_service) {
+					state = service_mode + state_enter_service;
+				}
+				start_counter--;
+				if (!start_counter) {
+					state = state_show_time;
+//					new_write_eeprom();
+//					new_read_eeprom();
+				}
+			}
+			else {
+				start_counter = 0;
+
+			}
+		}
+	}
+
+	if (prev_status != curr_status) {
+		if (curr_status == STATUS_WORKING) {
+//			if (1) {
+//				work_hours[2] += main_time;
+//				if (work_hours[2] > 59L) {
+//					work_hours[2] = work_hours[2] - 60;
+//					work_hours[1]++;
+//					if (work_hours[1] > 99L) {
+//						work_hours[1] = 0;
+//						work_hours[0]++;
+//					}
+//				}
+//				write_stored_time();
+//			}
+			flash_mode = 0;
+//			set_lamps(100);
+			if((temp_min_threshold > 0) && (g_Temperature > 0) && (g_Temperature < 70)) // 70 degrees
+			{
+//				percent_fan1 = 0;
+			}
+//			set_fan1(percent_fan1);
+		}
+		if (curr_status == STATUS_COOLING) {
+			if (controller_address == 15) {
+				work_hours[2] += abs(main_time);
+				if (work_hours[2] > 59L) {
+					work_hours[2] = work_hours[2] - 60;
+					work_hours[1]++;
+					if (work_hours[1] > 99L) {
+						work_hours[1] = 0;
+						work_hours[0]++;
+					}
+				}
+				write_stored_time();
+
+			}
+//			percent_fan1 = 10L;
+//			set_lamps(OFF);
+			//			zero_crossed = 0;
+//			stop_delay = 1000;
+			//			set_colarium_lamps(0);
+//			fan_level = 10;
+//			set_fan1(percent_fan1);
+			flash_mode = 3;
+		}
+		if (curr_status == STATUS_FREE) {
+//			set_lamps(OFF);
+//			set_fan1(0);
+			//			set_aquafresh(percent_aquafresh);
+//			minute_counter = 0;
+			flash_mode = 0;
+		}
+		prev_status = curr_status;
+
+	}
+	//    LED1_OFF;
+
+}
+
+//---------------------------------------------------------------
+void update_status(void) {
+	if (pre_time) {
+		curr_time = pre_time;
+		curr_status = STATUS_WAITING;
+#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
+		aqua_fresh_level = 0;
+#endif
+	}
+	else if (main_time) {
+		curr_time = main_time;
+		curr_status = STATUS_WORKING;
+#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
+		if (!minute_counter)aqua_fresh_level = 2;
+#endif
+	}
+	else if (cool_time) {
+		curr_time = cool_time;
+		curr_status = STATUS_COOLING;
+#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
+		aqua_fresh_level = 0;
+#endif
+	}
+	else {
+		curr_time = 0;
+		curr_status = STATUS_FREE;
+#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
+		aqua_fresh_level = 0;
+#endif
+	}
 }
 
 /* USER CODE END 4 */

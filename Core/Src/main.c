@@ -25,6 +25,8 @@
 /* USER CODE BEGIN Includes */
 #include "../../Drivers/tm1637.h"
 #include "eeprom.h"
+#include "math.h"
+#include "stdlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,7 +107,7 @@ uint32_t g_MeasurementNumber;
 uint32_t g_Temperature;
 
 uint16_t data = 0;
-unsigned char  time_to_set = 0;
+unsigned int   time_to_set = 0;
 unsigned int   work_hours[3] = {0,0,0}; //HH HL MM - Hours[2], Minutes[1]
 unsigned char  preset_pre_time = 7;
 unsigned char  preset_cool_time = 3;
@@ -120,7 +122,8 @@ int flash_mode = 0;
 int start_counter = 0;
 int last_button = 0;
 int prev_button = 0;
-int display_data;
+display_data_t display_data = {0,0,0,0,255};
+
 // Timers in seconds
 int pre_time;
 int main_time;
@@ -134,23 +137,7 @@ int Gv_UART_Timeout = 1000; // Timeout in mSec
 int pre_time_sent = 0, main_time_sent = 0, cool_time_sent = 0;
 int rx_state= 0;
 
-typedef struct time_str{
-	 uint16_t hours_h;
-	 uint16_t hours_l;
-	 uint16_t minutes;
-}time_str;
-typedef struct settings_str{
-	 uint16_t addresse;
-	 uint16_t pre_time;
-	 uint16_t cool_time;
-	 uint16_t ext_mode;
-	 uint16_t volume;
-	 uint16_t temperatue_max;
-}settings_str;
-typedef struct flash_struct{
-	 time_str time;
-	 settings_str settings;
-}flash_struct;
+
 flash_struct flash_data;
 uint16_t VirtAddVarTab[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14};//sizeof(flash_data)/2];
 
@@ -174,11 +161,12 @@ void ProcessButtons(void);
 void new_read_eeprom(void);
 void new_write_eeprom(void);
 float analog2tempBed(int raw);
-int ToBCD(int value);
+int ToBCD(unsigned int value);
 int FromBCD(int value);
 void write_stored_time(void);
 void write_settings(void);
 void read_settings(void);
+void SetDisplayDataInt(unsigned value);
 
 /* USER CODE END PFP */
 
@@ -198,7 +186,7 @@ void delay_us (uint16_t us)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	__disable_irq();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -227,6 +215,7 @@ int main(void)
   MX_RTC_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
+  __enable_irq();
   TM1637_init(true,TM1637_BRIGHTNESS_MAX);
   HAL_Delay(100);
   TM1637_init(true,TM1637_BRIGHTNESS_MAX);
@@ -234,6 +223,7 @@ int main(void)
   TM1637_display_digit(1,11);
   TM1637_display_digit(2,12);
   TM1637_display_digit(3,0);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -241,10 +231,9 @@ int main(void)
   while (1)
   {
     static uint8_t colon;
-    static uint8_t last_key = 0;
     colon++;
 	HAL_Delay(10);
-	TM1637_display_colon(seconds_counter &1);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -285,24 +274,35 @@ int main(void)
 		if (!pre_time && !main_time && !cool_time) {
 			flash_mode = 0;
 			state = state_set_time;
-			display_data = ToBCD(time_to_set);
+			SetDisplayDataMinSec(time_to_set*60);
+			TM1637_display_colon(1);
 			//				display_data = ToBCD(last_button); //Debug
 		}
 		else if (!pre_time && !main_time && cool_time)
 		{
+			TM1637_display_colon(1);
 			if(flash_counter & 0x20)
 			{
-				display_data = 0xFFF;
+				SetDisplayDataInt(0xFFFF);
 			}
 			else
 			{
-				display_data = ToBCD(abs(cool_time));
+				SetDisplayDataMinSec(cool_time);
 			}
 		}
 		else {
 			state = state_show_time;
 			//				  time_to_set = 0;
-			display_data = ToBCD(abs(main_time));
+			SetDisplayDataMinSec(*curr_time);
+			if(curr_status == STATUS_WORKING )
+			{
+				TM1637_display_colon(seconds_counter &1);
+			}
+			else
+			{
+				TM1637_display_colon(1);
+			}
+
 			//				display_data = ToBCD(last_button); //Debug
 		}
 		break;
@@ -314,57 +314,52 @@ int main(void)
 		{
 			int index = ((flash_counter / 0x30)) % 8;
 			if ((index < 6) && (index & 1)) {
-				display_data = ToBCD(work_hours[index/2]);
+				SetDisplayDataInt(work_hours[index/2]);
 			}
 			else {
-				display_data = 0xFFF;
+				SetDisplayDataInt(0xFFFF);
 			}
 		}
 		break;
 	case state_enter_service:
-		display_data = service_mode | 0xF0;
+		SetDisplayDataInt(service_mode | 0xF0);
 		flash_mode = 0;
 		break;
 
 	case state_clear_hours:
 		//			flash_mode = 3;
 		if ((flash_counter / 0x30) & 1) {
-			display_data = 0xFFC;
+			SetDisplayDataInt(0xFFFC);
 		}
 		else {
-			display_data = 0xFFF;
+			SetDisplayDataInt(0xFFFF);
 		}
 		break;
 	case state_address:
 		flash_mode = 0;
 		if ((flash_counter / 0x30) & 1) {
-			if (controller_address != 15) { // Address 15 reserved for external control
-				display_data = controller_address;
-			}
-			else {
-				display_data = 0xEAF;
-			}
+			SetDisplayDataInt(controller_address);
 		}
 		else {
-			display_data = 0xFFA;
+			SetDisplayDataInt(0xFFFA);
 		}
 		break;
 	case state_pre_time:
 		//			flash_mode = 3;
 		if ((flash_counter / 0x30) & 1) {
-			display_data = preset_pre_time;
+			SetDisplayDataInt(preset_pre_time);
 		}
 		else {
-			display_data = 0xFF3;
+			SetDisplayDataInt(0xFFF3);
 		}
 		break;
 	case state_cool_time:
 		//			flash_mode = 3;
 		if ((flash_counter / 0x30) & 1) {
-			display_data = preset_cool_time;
+			SetDisplayDataInt(preset_cool_time);
 		}
 		else {
-			display_data = 0xFF4;
+			SetDisplayDataInt(0xFFF4);
 		}
 		break;
 	}
@@ -410,17 +405,18 @@ int main(void)
 	//Uncomment to check temperature
 	if ((last_button == BUTTON_STOP) && (curr_status == STATUS_FREE))
 	{
-    	display_data = ToBCD(g_Temperature);
+		SetDisplayDataInt(g_Temperature);
 //			display_data = g_ADCMeanValue;
 	}
 	if(error_code)
 	{
-		display_data = error_code;
+		SetDisplayDataInt(error_code);
 	}
-	TM1637_display_digit(0,display_data & 0x0f);
-	TM1637_display_digit(1,(display_data>>4) & 0x0f);
-	TM1637_display_digit(2,(display_data>>8) & 0x0f);
-	TM1637_display_digit(3,(display_data>>12) & 0x0f);
+	TM1637_set_brightness(display_data.brightness);
+	TM1637_display_digit(3,display_data.digit_3);
+	TM1637_display_digit(2,display_data.digit_2);
+	TM1637_display_digit(1,display_data.digit_1);
+	TM1637_display_digit(0,display_data.digit_0);
 	flash_counter++;
 	if(	(temp_max_threshold > 0) && (g_Temperature > 0))
 	{
@@ -962,7 +958,7 @@ void usart1_IT_handler()
 {
 	 uint32_t isrflags   = READ_REG(USART2->ISR);
 	 uint32_t cr1its     = READ_REG(USART2->CR1);
-	 uint32_t cr3its     = READ_REG(USART2->CR3);
+//	 uint32_t cr3its     = READ_REG(USART2->CR3);
 	 uint32_t errorflags = 0x00U;
 //	 uint32_t dmarequest = 0x00U;
 	 enum rxstates {rx_state_none, rx_state_pre_time, rx_state_main_time, rx_state_cool_time, rx_state_get_checksum};
@@ -1050,19 +1046,40 @@ void usart1_IT_handler()
 
 
 void user_systick_callback() {
-
-	msec_counter++;
-	if(msec_counter > 999) {
-		msec_counter = 0;
+	if(Gv_miliseconds++>1000L){
+		Gv_miliseconds = 0;
 		seconds_counter++;
-		if(seconds_counter > 59) {
-			seconds_counter = 0;
-			minutes_counter++;
-			if(minutes_counter > 99) {
-				minutes_counter = 0;
-			}
+		if (pre_time)
+		{
+//			play_message(1,message_hurry_up);
+			pre_time--;
+		}
+		else if (main_time) {
+			main_time--;
+		}
+		else if (cool_time) cool_time--;
+		update_status();
+	}
+	if  (Gv_UART_Timeout){
+		Gv_UART_Timeout--;
+		if(! Gv_UART_Timeout) {
+			rx_state = 0;
+			pre_time_sent = 0, main_time_sent = 0, cool_time_sent = 0;
 		}
 	}
+
+//	msec_counter++;
+//	if(msec_counter > 999) {
+//		msec_counter = 0;
+//		seconds_counter++;
+//		if(seconds_counter > 59) {
+//			seconds_counter = 0;
+//			minutes_counter++;
+//			if(minutes_counter > 99) {
+//				minutes_counter = 0;
+//			}
+//		}
+//	}
 }
 
 // 10k thermistor Chineese
@@ -1099,15 +1116,34 @@ float analog2tempBed(int raw) {
 
 }
 
-int ToBCD(int value){
+int ToBCD(unsigned value){
 	int digits[4];
 	int result;
 	digits[0] = value %10;
 	digits[1] = (value/10) % 10;
 	digits[2] = (value/100) % 10;
-	digits[2] = (value/1000) % 10;
+	digits[3] = (value/1000) % 10;
 	result = digits[0] | (digits[1]<<4) | (digits[2]<<8) | (digits[3]<<12);
-	return result;
+}
+
+void SetDisplayDataMinSec(unsigned value){
+	unsigned int seconds = value %60;
+	unsigned int minutes = value /60;
+	{
+		display_data.digit_3 = seconds %10;
+		display_data.digit_2  = (seconds/10) % 10;
+		display_data.digit_1  = (minutes) % 10;
+		display_data.digit_0  = (minutes/10) % 10;
+	}
+}
+
+void SetDisplayDataInt(unsigned value){
+	{
+		display_data.digit_3 = value &0x0f;
+		display_data.digit_2  = (value>>4) &0x0f;
+		display_data.digit_1  = (value>>8) &0x0f;
+		display_data.digit_0  = (value>>12) &0x0f;
+	}
 }
 
 int FromBCD(int value){
@@ -1401,32 +1437,20 @@ void ProcessButtons(void)
 //---------------------------------------------------------------
 void update_status(void) {
 	if (pre_time) {
-		curr_time = pre_time;
+		curr_time = &pre_time;
 		curr_status = STATUS_WAITING;
-#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
-		aqua_fresh_level = 0;
-#endif
 	}
 	else if (main_time) {
-		curr_time = main_time;
+		curr_time = &main_time;
 		curr_status = STATUS_WORKING;
-#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
-		if (!minute_counter)aqua_fresh_level = 2;
-#endif
 	}
 	else if (cool_time) {
-		curr_time = cool_time;
+		curr_time = &cool_time;
 		curr_status = STATUS_COOLING;
-#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
-		aqua_fresh_level = 0;
-#endif
 	}
 	else {
 		curr_time = 0;
 		curr_status = STATUS_FREE;
-#ifdef LICEVI_LAMPI_VMESTO_AQAFRESH
-		aqua_fresh_level = 0;
-#endif
 	}
 }
 

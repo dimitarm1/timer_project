@@ -72,7 +72,31 @@ void delay_us (uint16_t us);
 #define SIO_Pin GPIO_PIN_4
 #define SIO_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
+typedef struct time_str{
+	 uint16_t hours_h;
+	 uint16_t hours_l;
+	 uint16_t minutes;
+}time_str;
+typedef struct {
+	 uint8_t digit_0;
+	 uint8_t digit_1;
+	 uint8_t digit_2;
+	 uint8_t digit_3;
+	 uint8_t brightness;
+}display_data_t;
 
+typedef struct settings_str{
+	 uint16_t addresse;
+	 uint16_t pre_time;
+	 uint16_t cool_time;
+	 uint16_t ext_mode;
+	 uint16_t volume;
+	 uint16_t temperatue_max;
+}settings_str;
+typedef struct flash_struct{
+	 time_str time;
+	 settings_str settings;
+}flash_struct;
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

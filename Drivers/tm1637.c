@@ -42,25 +42,55 @@ static uint8_t _config = TM1637_SET_DISPLAY_ON | TM1637_BRIGHTNESS_MAX;
 static uint8_t _segments = 0xff;
 GPIO_InitTypeDef GPIO_InitStruct_DIO_Input = {.Mode = GPIO_MODE_INPUT, .Pin=TM1637_DIO_PIN};
 GPIO_InitTypeDef GPIO_InitStruct_DIO_Output = {.Mode = GPIO_MODE_OUTPUT_PP, .Pin=TM1637_DIO_PIN};
-const uint8_t _digit2segments[] =
-{
-	0x3F, // 0
-	0x06, // 1
-	0x5B, // 2
-	0x4F, // 3
-	0x66, // 4
-	0x6D, // 5
-	0x7D, // 6
-	0x07, // 7
-	0x7F, // 8
-	0x6F,  // 9
-    0x77,		/* A */
-    0x7c,		/* B */
-    0x39,		/* C */
-    0x5e,		/* D */
-    0x79,		/* E */
-    0x71,		/* F */
-};
+//const uint8_t _digit2segments[] =
+//{
+//	0x3F, // 0
+//	0x06, // 1
+//	0x5B, // 2
+//	0x4F, // 3
+//	0x66, // 4
+//	0x6D, // 5
+//	0x7D, // 6
+//	0x07, // 7
+//	0x7F, // 8
+//	0x6F,  // 9
+//    0x77,		/* A */
+//    0x7c,		/* B */
+//    0x39,		/* C */
+//    0x5e,		/* D */
+//    0x79,		/* E */
+//    0x71,		/* F */
+//};
+
+
+//
+//      A
+//     ---
+//  F |   | B
+//     -G-
+//  E |   | C
+//     ---
+//      D
+const uint8_t _digit2segments[] = {
+ // XGFEDCBA
+  0b00111111,    // 0
+  0b00000110,    // 1
+  0b01011011,    // 2
+  0b01001111,    // 3
+  0b01100110,    // 4
+  0b01101101,    // 5
+  0b01111101,    // 6
+  0b00000111,    // 7
+  0b01111111,    // 8
+  0b01101111,    // 9
+  0b01110111,    // A
+  0b01111100,    // b
+  0b00111001,    // C
+  0b01011110,    // d
+  0b01111001,    // E
+  0, // blank
+  0b01110001     // F
+  };
 
 void
 TM1637_init(const uint8_t enable, const uint8_t brightness)

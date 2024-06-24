@@ -167,6 +167,10 @@ void write_stored_time(void);
 void write_settings(void);
 void read_settings(void);
 void SetDisplayDataInt(unsigned value);
+void relay_fan_on();
+void relay_fan_off();
+void relay_lampi_on();
+void relay_lampi_off();
 
 /* USER CODE END PFP */
 
@@ -954,7 +958,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
 //      g_Temperature = (g_Temperature*9 + (((g_ADCValue - ADC_0_DEGREE_VALUE)*366)/(ADC_36_6_DEGREE_VALUE - ADC_0_DEGREE_VALUE)) + 0)/10;
   }
 
-void usart1_IT_handler()
+void UART_RxISR(UART_HandleTypeDef *huart)
 {
 	 uint32_t isrflags   = READ_REG(USART2->ISR);
 	 uint32_t cr1its     = READ_REG(USART2->CR1);
@@ -964,13 +968,13 @@ void usart1_IT_handler()
 	 enum rxstates {rx_state_none, rx_state_pre_time, rx_state_main_time, rx_state_cool_time, rx_state_get_checksum};
 
 	 /* If no error occurs */
-	 errorflags = (isrflags & (uint32_t)(USART_ISR_PE | USART_ISR_FE | USART_ISR_ORE | USART_ISR_NE));
-	 if(errorflags == RESET)
+//	 errorflags = (isrflags & (uint32_t)(USART_ISR_PE | USART_ISR_FE | USART_ISR_ORE | USART_ISR_NE));
+//	 if(errorflags == RESET)
 	 {
 		 /* UART in mode Receiver -------------------------------------------------*/
-		 if(((isrflags & USART_CR1_RXNEIE) != RESET) && ((cr1its & USART_CR1_RXNEIE) != RESET))
+//		 if(((isrflags & USART_CR1_RXNEIE) != RESET) && ((cr1its & USART_CR1_RXNEIE) != RESET))
 		 {
-			 data = USART2->RDR & (uint16_t)0x00FF;
+			 data = huart->Instance->RDR & (uint16_t)0x00FF;
 			 if ((data & 0x80)){
 			 		last_rx_address = (data >> 3U)&0x0f;
 			 		unsigned char addr_is_ok = 0;
@@ -1037,11 +1041,14 @@ void usart1_IT_handler()
 			 	}
 		 }
 	 }
-	 else
-	 {
-		 rx_state= 0;
-		 USART2->ISR = 0; // Clear Errors
-	 }
+//	 else
+//	 {
+//		 rx_state= 0;
+//		 USART2->ISR = 0; // Clear Errors
+//	 }
+	  /* Clear RXNE interrupt flag */
+	 __HAL_UART_SEND_REQ(huart, UART_RXDATA_FLUSH_REQUEST);
+//	 USART2->ISR = 0; // Clear Errors
 }
 
 
@@ -1229,9 +1236,25 @@ void ProcessButtons(void)
 				}
 				break;
 			case BUTTON_STOP:
+				if (curr_status == STATUS_FREE) {
+					time_to_set = 0;
+					update_status();
+				}
+				if (curr_status == STATUS_WAITING) {
+					main_time = 0;
+					pre_time = 0;
+					cool_time = 0;
+					update_status();
+				}
 				if (curr_status == STATUS_WORKING) {
 					main_time = 0;
 					pre_time = 0;
+					update_status();
+//					percent_fan1 = 10;
+//					set_fan1(percent_fan1);
+				}
+				if (curr_status == STATUS_COOLING) {
+					cool_time = 0;
 					update_status();
 //					percent_fan1 = 10;
 //					set_fan1(percent_fan1);
@@ -1396,6 +1419,8 @@ void ProcessButtons(void)
 //				percent_fan1 = 0;
 			}
 //			set_fan1(percent_fan1);
+			relay_lampi_on();
+			relay_fan_on();
 		}
 		if (curr_status == STATUS_COOLING) {
 			if (controller_address == 15) {
@@ -1411,6 +1436,8 @@ void ProcessButtons(void)
 				write_stored_time();
 
 			}
+			relay_lampi_off();
+			relay_fan_on();
 //			percent_fan1 = 10L;
 //			set_lamps(OFF);
 			//			zero_crossed = 0;
@@ -1421,6 +1448,8 @@ void ProcessButtons(void)
 			flash_mode = 3;
 		}
 		if (curr_status == STATUS_FREE) {
+			relay_lampi_off();
+			relay_fan_off();
 //			set_lamps(OFF);
 //			set_fan1(0);
 			//			set_aquafresh(percent_aquafresh);
@@ -1452,6 +1481,27 @@ void update_status(void) {
 		curr_time = 0;
 		curr_status = STATUS_FREE;
 	}
+}
+
+//---------------------------------------------------------------
+void relay_fan_on()
+{
+  HAL_GPIO_WritePin(P1_GPIO_Port, P2_Pin, GPIO_PIN_SET);
+}
+//---------------------------------------------------------------
+void relay_fan_off()
+{
+  HAL_GPIO_WritePin(P1_GPIO_Port, P2_Pin, GPIO_PIN_RESET);
+}
+//---------------------------------------------------------------
+void relay_lampi_on()
+{
+	HAL_GPIO_WritePin(P1_GPIO_Port, P1_Pin, GPIO_PIN_SET);
+}
+//---------------------------------------------------------------
+void relay_lampi_off()
+{
+	HAL_GPIO_WritePin(P1_GPIO_Port, P1_Pin, GPIO_PIN_RESET);
 }
 
 /* USER CODE END 4 */

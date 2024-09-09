@@ -171,6 +171,7 @@ void relay_fan_on();
 void relay_fan_off();
 void relay_lampi_on();
 void relay_lampi_off();
+void UART_RxISR(UART_HandleTypeDef *huart);
 
 /* USER CODE END PFP */
 
@@ -206,7 +207,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  __disable_irq();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -733,7 +734,7 @@ static void MX_USART1_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
-
+  huart1.RxISR = UART_RxISR;
   /* USER CODE END USART1_Init 2 */
 
 }

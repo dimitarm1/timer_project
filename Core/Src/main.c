@@ -47,6 +47,8 @@
 #define ADDRESS_TEMP_MIN	8
 #define ADDRESS_TEMP_MAX	9
 
+#define FLASH_DIVIDER  0x10
+
 // Buttons
 #define BUTTON_START     (1)
 #define BUTTON_PLUS      (2)
@@ -317,7 +319,7 @@ int main(void)
 			flash_mode = 3; // All flashing
 		}
 		{
-			int index = ((flash_counter / 0x30)) % 8;
+			int index = ((flash_counter /FLASH_DIVIDER)) % 8;
 			if ((index < 6) && (index & 1)) {
 				SetDisplayDataInt(work_hours[index/2]);
 			}
@@ -333,7 +335,7 @@ int main(void)
 
 	case state_clear_hours:
 		//			flash_mode = 3;
-		if ((flash_counter / 0x30) & 1) {
+		if ((flash_counter /FLASH_DIVIDER) & 1) {
 			SetDisplayDataInt(0xFFFC);
 		}
 		else {
@@ -342,7 +344,7 @@ int main(void)
 		break;
 	case state_address:
 		flash_mode = 0;
-		if ((flash_counter / 0x30) & 1) {
+		if ((flash_counter /FLASH_DIVIDER) & 1) {
 			SetDisplayDataInt(controller_address);
 		}
 		else {
@@ -351,7 +353,7 @@ int main(void)
 		break;
 	case state_pre_time:
 		//			flash_mode = 3;
-		if ((flash_counter / 0x30) & 1) {
+		if ((flash_counter /FLASH_DIVIDER) & 1) {
 			SetDisplayDataInt(preset_pre_time);
 		}
 		else {
@@ -360,7 +362,7 @@ int main(void)
 		break;
 	case state_cool_time:
 		//			flash_mode = 3;
-		if ((flash_counter / 0x30) & 1) {
+		if ((flash_counter /FLASH_DIVIDER) & 1) {
 			SetDisplayDataInt(preset_cool_time);
 		}
 		else {
@@ -985,7 +987,12 @@ void UART_RxISR(UART_HandleTypeDef *huart)
 			 			Gv_UART_Timeout = 1500;
 			 		}
 			 		if((data & 0x07) == 0x00 ){ // Status
-			 			data = (curr_status<<6)| ToBCD(*curr_time/60);
+			 			uint16_t time = *curr_time/60;
+			 			if (*curr_time) {
+			 				// Compensate for int rounding
+			 				time = time+1;
+			 			}
+			 			data = (curr_status<<6)| ToBCD(time);
 			 //			data = (STATUS_WORKING<<6)|4;
 			 			huart->Instance->TDR = data;
 			 		}
@@ -1478,7 +1485,7 @@ void update_status(void) {
 		curr_status = STATUS_COOLING;
 	}
 	else {
-		curr_time = 0;
+		curr_time = &main_time;
 		curr_status = STATUS_FREE;
 	}
 }

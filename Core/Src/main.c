@@ -61,10 +61,9 @@
 #define STATUS_COOLING (2L)
 #define MULTIPLIER     (1)
 #define START_COUNTER_TIME  (1000L*MULTIPLIER)
-#define ENTER_SERVICE_DELAY (2000L*MULTIPLIER)
-#define SERVICE_NEXT_DELAY  (400*MULTIPLIER)
-#define EXIT_SERVICE_TIME   (1200L*MULTIPLIER)
-#define START_DELAY         (200L*MULTIPLIER)
+#define ENTER_SERVICE_DELAY (500L*MULTIPLIER)
+#define SERVICE_NEXT_DELAY  (100*MULTIPLIER)
+#define EXIT_SERVICE_TIME   (3000L*MULTIPLIER)
 
 /* USER CODE END PD */
 
@@ -246,6 +245,9 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 	last_button = TM1637_getKeys();
+	if(HAL_GPIO_ReadPin(Start_GPIO_Port, Start_Pin) == 0){
+		last_button |= BUTTON_START;
+	}
 //	if(button > 0) {
 //		TM1637_display_digit(3,key);
 //	}
@@ -794,7 +796,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : Start_Pin */
   GPIO_InitStruct.Pin = Start_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(Start_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RF_Prog_Pin P1_Pin P2_Pin CLK_Pin */

@@ -2384,8 +2384,21 @@ void HAL_UART_IRQHandler(UART_HandleTypeDef *huart)
           - any error occurs in DMA mode reception
       */
       errorcode = huart->ErrorCode;
-      if ((HAL_IS_BIT_SET(huart->Instance->CR3, USART_CR3_DMAR)) ||
-          ((errorcode & (HAL_UART_ERROR_RTO | HAL_UART_ERROR_ORE)) != 0U))
+      if(errorcode) {
+    	    // Check for Overrun Error (ORE)
+    	    if (USART1->ISR & USART_ISR_ORE) {
+    	        // Clear ORE by reading ISR and then reading RDR
+    	        volatile uint8_t temp = USART1->RDR;  // Read RDR to clear the ORE flag
+    	    }
+
+    	    // Check for Noise Error (NE), Framing Error (FE), and Parity Error (PE)
+    	    if (USART1->ISR & (USART_ISR_NE | USART_ISR_FE | USART_ISR_PE)) {
+    	        // Clear the errors by reading the RDR
+    	        volatile uint8_t temp = USART1->RDR;  // Reading RDR clears the NE, FE, and PE flags
+    	    }
+      }
+      if (0) /*((HAL_IS_BIT_SET(huart->Instance->CR3, USART_CR3_DMAR)) ||
+          ((errorcode & (HAL_UART_ERROR_RTO | HAL_UART_ERROR_ORE)) != 0U))*/
       {
         /* Blocking error : transfer is aborted
            Set the UART state ready to be able to start again the process,
@@ -2447,6 +2460,8 @@ void HAL_UART_IRQHandler(UART_HandleTypeDef *huart)
         /*Call legacy weak error callback*/
         HAL_UART_ErrorCallback(huart);
 #endif /* USE_HAL_UART_REGISTER_CALLBACKS */
+        // Clear ORE by reading ISR and then reading RDR
+        volatile uint8_t temp = USART1->RDR;  // Read RDR to clear the ORE flag
         huart->ErrorCode = HAL_UART_ERROR_NONE;
       }
     }

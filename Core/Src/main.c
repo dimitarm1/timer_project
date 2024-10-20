@@ -961,19 +961,19 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
 
 void UART_RxISR(UART_HandleTypeDef *huart)
 {
-	 uint32_t isrflags   = READ_REG(USART2->ISR);
-	 uint32_t cr1its     = READ_REG(USART2->CR1);
-//	 uint32_t cr3its     = READ_REG(USART2->CR3);
+	 uint32_t isrflags   = READ_REG(huart->Instance->ISR);
+	 uint32_t cr1its     = READ_REG(huart->Instance->CR1);
+	 uint32_t cr3its     = READ_REG(huart->Instance->CR3);
 	 uint32_t errorflags = 0x00U;
 //	 uint32_t dmarequest = 0x00U;
 	 enum rxstates {rx_state_none, rx_state_pre_time, rx_state_main_time, rx_state_cool_time, rx_state_get_checksum};
 
 	 /* If no error occurs */
-//	 errorflags = (isrflags & (uint32_t)(USART_ISR_PE | USART_ISR_FE | USART_ISR_ORE | USART_ISR_NE));
-//	 if(errorflags == RESET)
+	 errorflags = (isrflags & (uint32_t)(USART_ISR_PE | USART_ISR_FE | USART_ISR_ORE | USART_ISR_NE));
+	 if(errorflags == RESET)
 	 {
 		 /* UART in mode Receiver -------------------------------------------------*/
-//		 if(((isrflags & USART_CR1_RXNEIE) != RESET) && ((cr1its & USART_CR1_RXNEIE) != RESET))
+		 if(((isrflags & USART_CR1_RXNEIE) != RESET) && ((cr1its & USART_CR1_RXNEIE) != RESET))
 		 {
 			 data = huart->Instance->RDR & (uint16_t)0x00FF;
 			 if ((data & 0x80)){
@@ -988,7 +988,7 @@ void UART_RxISR(UART_HandleTypeDef *huart)
 			 		if((data & 0x07) == 0x00 ){ // Status
 			 			data = (curr_status<<6)| ToBCD(*curr_time/60);
 			 //			data = (STATUS_WORKING<<6)|4;
-			 			USART1->TDR = data;
+			 			huart->Instance->TDR = data;
 			 		}
 			 		else if ((data & 0x07) == 1) //Command 1 - Start
 			 		{
@@ -1035,18 +1035,18 @@ void UART_RxISR(UART_HandleTypeDef *huart)
 			 			rx_state = rx_state_get_checksum;
 			 			int checksum = (pre_time_sent + cool_time_sent  - time_in_hex - 5) & 0x7F;
 			 			data = checksum;
-			 			USART2->TDR = data;
+			 			huart->Instance->TDR = data;
 			 		}
 
 
 			 	}
 		 }
 	 }
-//	 else
-//	 {
-//		 rx_state= 0;
-//		 USART2->ISR = 0; // Clear Errors
-//	 }
+	 else
+	 {
+		 rx_state= 0;
+		 huart->Instance->ISR = 0; // Clear Errors
+	 }
 	  /* Clear RXNE interrupt flag */
 	 __HAL_UART_SEND_REQ(huart, UART_RXDATA_FLUSH_REQUEST);
 //	 USART2->ISR = 0; // Clear Errors

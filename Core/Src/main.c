@@ -229,6 +229,8 @@ int main(void)
   TM1637_display_digit(1,11);
   TM1637_display_digit(2,12);
   TM1637_display_digit(3,0);
+  EE_Init();
+  read_settings();
 
   /* USER CODE END 2 */
 
@@ -396,26 +398,16 @@ int main(void)
 	else if (cool_time) {
 //		ShowBarIndicators(volume_level, fan_level);
 	}
-//	show_level(aqua_fresh_level);
-//	HAL_ADC_Start_IT(&hadc1);
+
+	HAL_ADC_Start_IT(&hadc);
 	HAL_Delay(10);
 
-//		display_data = 0xFFF;
-//		for(int i = 0; i < 9; i++)
-//		{
-//			if (!key_readings[i])
-//			{
-//				display_data = i;
-//				break;
-//			}
-//
-//		}
 
 	//Uncomment to check temperature
 	if ((last_button == BUTTON_STOP) && (curr_status == STATUS_FREE))
 	{
-		SetDisplayDataInt(g_Temperature);
-//			display_data = g_ADCMeanValue;
+		SetDisplayDataInt(ToBCD(g_Temperature));
+//		SetDisplayDataInt(ToBCD(g_ADCMeanValue));
 	}
 	if(error_code)
 	{
@@ -456,14 +448,8 @@ int main(void)
 //		set_fan1(percent_fan1);
 	}
 	/* Reload IWDG counter */
-//		IWDG_ReloadCounter();
 	HAL_IWDG_Refresh(&hiwdg);
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET); // Disable external reset connected to PB9
 
-
-	//-------------------
-
-	HAL_IWDG_Refresh(&hiwdg);
   }
   /* USER CODE END 3 */
 }
@@ -952,9 +938,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
 	//CorrectedValue = (((RawValue � RawLow) * ReferenceRange) / RawRange) + ReferenceLow
       g_ADCValue = HAL_ADC_GetValue(AdcHandle);
       g_ADCMeanValue = (g_ADCMeanValue*9 + g_ADCValue)/10;
-      raw_temp = 1024 - g_ADCValue;
       g_MeasurementNumber++;
-      g_Temperature = analog2tempBed(g_ADCValue); // Must be an error...
+      g_Temperature = analog2tempBed(g_ADCMeanValue); // Must be an error...
       if(g_Temperature > 200)
       {
     	  g_Temperature = 0;
@@ -1101,11 +1086,11 @@ void user_systick_callback() {
 // 10k thermistor Chineese
 const float temptable_10[][2] = {
   {    1 , 430 },
-  {   0x67A , 100 },
-  {  0x835, 36 },
-  {  0xA0A,  20 },
-  {  0xAA0,  13 },
-  {  0xCCC,  0 },
+  {  2230 , 96 },
+  {  2870, 36 },
+  {  3000,  16 },
+  {  3130,  5 },
+  {  3201,  0 },
 };
 #define COUNT(a) (sizeof(a)/sizeof(*a))
 #define BEDTEMPTABLE temptable_10

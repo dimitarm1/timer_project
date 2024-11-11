@@ -71,6 +71,7 @@ void delay_us (uint16_t us);
 #define CLK_GPIO_Port GPIOA
 #define SIO_Pin GPIO_PIN_4
 #define SIO_GPIO_Port GPIOB
+
 /* USER CODE BEGIN Private defines */
 typedef struct time_str{
 	 uint16_t hours_h;
@@ -104,5 +105,3 @@ typedef struct flash_struct{
 #endif
 
 #endif /* __MAIN_H */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

@@ -419,7 +419,6 @@ uint16_t EE_ReadVariable(uint16_t VirtAddress, uint16_t* Data)
 uint16_t EE_WriteVariable(uint16_t VirtAddress, uint16_t Data)
 {
   uint16_t Status = 0;
-
   /* Write the variable virtual address and value in the EEPROM */
   Status = EE_VerifyPageFullWriteVariable(VirtAddress, Data);
 
@@ -445,6 +444,7 @@ static HAL_StatusTypeDef EE_Format(void)
   HAL_StatusTypeDef flashstatus = HAL_OK;
   uint32_t page_error = 0;
   FLASH_EraseInitTypeDef s_eraseinit;
+  HAL_FLASH_Unlock();
 
   s_eraseinit.TypeErase   = FLASH_TYPEERASE_PAGES;
   s_eraseinit.PageAddress = PAGE0_BASE_ADDRESS;
@@ -456,15 +456,19 @@ static HAL_StatusTypeDef EE_Format(void)
     /* If erase operation was failed, a Flash error code is returned */
     if (flashstatus != HAL_OK)
     {
-      return flashstatus;
+      goto exit;
     }
   }
+  uint16_t addressvalue = 0x5555;
+  uint32_t Address = PAGE0_BASE_ADDRESS;
+  loop:
   /* Set Page0 as valid page: Write VALID_PAGE at Page0 base address */
   flashstatus = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, PAGE0_BASE_ADDRESS, VALID_PAGE); 
+
   /* If program operation was failed, a Flash error code is returned */
   if (flashstatus != HAL_OK)
   {
-    return flashstatus;
+    goto exit;
   }
 
   s_eraseinit.PageAddress = PAGE1_BASE_ADDRESS;
@@ -475,11 +479,12 @@ static HAL_StatusTypeDef EE_Format(void)
     /* If erase operation was failed, a Flash error code is returned */
     if (flashstatus != HAL_OK)
     {
-      return flashstatus;
+      goto exit;
     }
   }
-  
-  return HAL_OK;
+  exit:
+  HAL_FLASH_Lock();
+  return flashstatus;
 }
 
 /**
@@ -577,6 +582,7 @@ static uint16_t EE_VerifyPageFullWriteVariable(uint16_t VirtAddress, uint16_t Da
   {
     return  NO_VALID_PAGE;
   }
+  HAL_FLASH_Unlock();
 
   /* Get the valid Page start address */
   address = (uint32_t)(EEPROM_START_ADDRESS + (uint32_t)(validpage * PAGE_SIZE));
@@ -595,10 +601,12 @@ static uint16_t EE_VerifyPageFullWriteVariable(uint16_t VirtAddress, uint16_t Da
       /* If program operation was failed, a Flash error code is returned */
       if (flashstatus != HAL_OK)
       {
+    	HAL_FLASH_Lock();
         return flashstatus;
       }
       /* Set variable virtual address */
-      flashstatus = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, address + 2, VirtAddress);       
+      flashstatus = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, address + 2, VirtAddress);
+      HAL_FLASH_Lock();
       /* Return program operation status */
       return flashstatus;
     }
@@ -608,7 +616,7 @@ static uint16_t EE_VerifyPageFullWriteVariable(uint16_t VirtAddress, uint16_t Da
       address = address + 4;
     }
   }
-
+  HAL_FLASH_Lock();
   /* Return PAGE_FULL in case the valid page is full */
   return PAGE_FULL;
 }
@@ -658,12 +666,14 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
     return NO_VALID_PAGE;       /* No valid Page */
   }
 
+  HAL_FLASH_Unlock();
+
   /* Set the new Page status to RECEIVE_DATA status */
   flashstatus = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, newpageaddress, RECEIVE_DATA);  
   /* If program operation was failed, a Flash error code is returned */
   if (flashstatus != HAL_OK)
   {
-    return flashstatus;
+	  goto exit;
   }
   
   /* Write the variable passed as parameter in the new active page */
@@ -671,7 +681,7 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
   /* If program operation was failed, a Flash error code is returned */
   if (eepromstatus != HAL_OK)
   {
-    return eepromstatus;
+	  goto exit;
   }
 
   /* Transfer process: transfer variables from old to the new active page */
@@ -689,7 +699,7 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
         /* If program operation was failed, a Flash error code is returned */
         if (eepromstatus != HAL_OK)
         {
-          return eepromstatus;
+        	goto exit;
         }
       }
     }
@@ -704,7 +714,7 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
   /* If erase operation was failed, a Flash error code is returned */
   if (flashstatus != HAL_OK)
   {
-    return flashstatus;
+	  goto exit;
   }
 
   /* Set new Page status to VALID_PAGE status */
@@ -712,11 +722,12 @@ static uint16_t EE_PageTransfer(uint16_t VirtAddress, uint16_t Data)
   /* If program operation was failed, a Flash error code is returned */
   if (flashstatus != HAL_OK)
   {
-    return flashstatus;
+    goto exit;
   }
   
   
-
+  exit:
+  HAL_FLASH_Lock();
   /* Return last operation flash status */
   return flashstatus;
 }

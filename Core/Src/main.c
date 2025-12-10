@@ -42,7 +42,7 @@
 #define ADDRESS_ADDRESSE	4
 #define ADDRESS_PRE_TIME	5
 #define ADDRESS_COOL_TIME	6
-#define ADDRESS_EXT_MODE	7
+#define ADDRESS_RF_CHANNEL	7
 #define ADDRESS_TEMP_MIN	8
 #define ADDRESS_TEMP_MAX	9
 
@@ -85,11 +85,11 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-typedef enum states {state_show_time,state_set_time,state_show_hours,state_enter_service,state_clear_hours,state_address,state_pre_time,state_cool_time}states;
+typedef enum states {state_show_time,state_set_time,state_show_hours,state_enter_service,state_clear_hours,state_address,state_pre_time,state_cool_time, state_rf_channel}states;
 states state;
-typedef enum modes {mode_null,mode_clear_hours,mode_set_address,mode_set_pre_time,mode_set_cool_time}modes;
+typedef enum modes {mode_null,mode_clear_hours,mode_set_address,mode_set_pre_time,mode_set_cool_time,mode_set_rf_channel}modes;
 modes service_mode;
-
+static uint8_t update_HC12_requested = 0;
 uint8_t current_state = 0;
 static uint16_t seconds_counter;
 static uint16_t minutes_counter;
@@ -113,7 +113,7 @@ unsigned char  preset_pre_time = 7;
 unsigned char  preset_cool_time = 3;
 unsigned char  temp_min_threshold;
 unsigned char  temp_max_threshold;
-unsigned char  ext_mode = 0;
+unsigned char  rf_channel = 0;
 unsigned char  lamps_mode = 0;
 unsigned char  temperature_current;
 unsigned char  last_rx_address;
@@ -177,6 +177,43 @@ void UART_RxISR(UART_HandleTypeDef *huart);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+HAL_StatusTypeDef HC12_SetParams(uint8_t channel)
+{
+    if (channel < 1 || channel > 127)
+        return HAL_ERROR;
+
+    static const char setPowerCmd[] = "AT+P4\r\n";
+    char chanCmd[10];   // only needs ~7 bytes, but this is still tiny
+    HAL_GPIO_WritePin(GPIOA, RF_Prog_Pin, GPIO_PIN_RESET);
+    HAL_Delay(100);
+    // Send power command
+    if (HAL_UART_Transmit(&huart2, (uint8_t*)setPowerCmd, sizeof(setPowerCmd)-1, 100) != HAL_OK)
+        return HAL_ERROR;
+
+    HAL_Delay(100);
+
+    // Build channel command: "AT+C###\r\n"
+    chanCmd[0] = 'A';
+    chanCmd[1] = 'T';
+    chanCmd[2] = '+';
+    chanCmd[3] = 'C';
+    chanCmd[4] = (channel / 100) + '0';
+    chanCmd[5] = ((channel / 10) % 10) + '0';
+    chanCmd[6] = (channel % 10) + '0';
+    chanCmd[7] = '\r';
+    chanCmd[8] = '\n';
+    chanCmd[9] = '\0'; // safety / not required by HAL
+    HAL_StatusTypeDef status = HAL_UART_Transmit(&huart2, (uint8_t*)chanCmd, 9, 100);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOA, RF_Prog_Pin, GPIO_PIN_RESET);
+    if(status!= HAL_OK)
+        return HAL_ERROR;
+
+    return HAL_OK;
+}
+
+
 void delay_us (uint16_t us)
 {
 	__HAL_TIM_SET_COUNTER(&htim17,0);  // set the counter value a 0
@@ -372,6 +409,15 @@ int main(void)
 			SetDisplayDataInt(0xFFF4);
 		}
 		break;
+	case state_rf_channel:
+		//			flash_mode = 3;
+		if ((flash_counter /FLASH_DIVIDER) & 1) {
+			SetDisplayDataInt(rf_channel);
+		}
+		else {
+			SetDisplayDataInt(0xFFF5);
+		}
+		break;
 	}
 	//		show_digit(display_data);
 	if (state == state_show_time) {
@@ -447,6 +493,10 @@ int main(void)
 	}
 	/* Reload IWDG counter */
 	HAL_IWDG_Refresh(&hiwdg);
+	if(update_HC12_requested) {
+		HC12_SetParams(rf_channel);
+		update_HC12_requested = 0;
+	}
 
   }
   /* USER CODE END 3 */
@@ -825,8 +875,8 @@ void read_settings(void)
 	preset_pre_time = data;
 	result += EE_ReadVariable(ADDRESS_COOL_TIME,  &data);
 	preset_cool_time = data;
-	result += EE_ReadVariable(ADDRESS_EXT_MODE,  &data);
-	ext_mode = data;
+	result += EE_ReadVariable(ADDRESS_RF_CHANNEL,  &data);
+	rf_channel = data;
 	result += EE_ReadVariable(ADDRESS_TEMP_MIN,  &data);
 	temp_min_threshold = data;
 	result += EE_ReadVariable(ADDRESS_TEMP_MAX,  &data);
@@ -840,7 +890,7 @@ void read_settings(void)
 		controller_address = 14;
 		temp_min_threshold = 17;
 		temp_max_threshold = 85;
-		ext_mode = 0;
+		rf_channel = 0;
 		work_hours[0] = 0;
 		work_hours[1] = 0;
 		work_hours[2] = 0;
@@ -897,7 +947,7 @@ void write_settings(void)
 			// Second chance
 			continue;
 		}
-		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_EXT_MODE,  ext_mode))
+		if(FLASH_COMPLETE != EE_WriteVariable(ADDRESS_RF_CHANNEL,  rf_channel))
 		{
 			// Second chance
 			continue;
@@ -1230,6 +1280,9 @@ void ProcessButtons(void)
 							if (state == state_address) {
 //								init_periph();
 							}
+							if(state == state_rf_channel){
+								update_HC12_requested = true;
+							}
 							start_counter = 0;
 						}
 						else {
@@ -1297,6 +1350,9 @@ void ProcessButtons(void)
 					case mode_set_cool_time:
 						if (preset_cool_time < 9) preset_cool_time++;
 						break;
+					case mode_set_rf_channel:
+						rf_channel++;
+						break;
 					default:
 						break;
 					}
@@ -1325,6 +1381,9 @@ void ProcessButtons(void)
 						break;
 					case mode_set_cool_time:
 						if (preset_cool_time) preset_cool_time--;
+						break;
+					case mode_set_rf_channel:
+						rf_channel++;
 						break;
 					default:
 						break;
@@ -1371,6 +1430,9 @@ void ProcessButtons(void)
 			}
 			else if (start_counter == START_COUNTER_TIME + ENTER_SERVICE_DELAY + 3 * SERVICE_NEXT_DELAY) {
 				service_mode = mode_set_cool_time; //
+			}
+			else if (start_counter == START_COUNTER_TIME + ENTER_SERVICE_DELAY + 4 * SERVICE_NEXT_DELAY) {
+				service_mode = mode_set_rf_channel; //
 			}
 		}
 //		set_start_out_signal(1);

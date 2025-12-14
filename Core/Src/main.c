@@ -106,7 +106,7 @@ volatile uint32_t g_ADCMeanValue;
 uint32_t g_MeasurementNumber;
 uint32_t g_Temperature;
 
-uint16_t data = 0;
+uint8_t data = 0;
 unsigned int   time_to_set = 0;
 unsigned int   work_hours[3] = {0,0,0}; //HH HL MM - Hours[2], Minutes[1]
 unsigned char  preset_pre_time = 7;
@@ -188,7 +188,7 @@ HAL_StatusTypeDef HC12_SetParams(uint8_t channel)
     HAL_GPIO_WritePin(GPIOA, RF_Prog_Pin, GPIO_PIN_RESET);
     HAL_Delay(100);
     // Send power command
-    if (HAL_UART_Transmit(&huart2, (uint8_t*)setPowerCmd, sizeof(setPowerCmd)-1, 100) != HAL_OK)
+    if (HAL_UART_Transmit(&huart1, (uint8_t*)setPowerCmd, sizeof(setPowerCmd)-1, 100) != HAL_OK)
         return HAL_ERROR;
 
     HAL_Delay(100);
@@ -204,7 +204,7 @@ HAL_StatusTypeDef HC12_SetParams(uint8_t channel)
     chanCmd[7] = '\r';
     chanCmd[8] = '\n';
     chanCmd[9] = '\0'; // safety / not required by HAL
-    HAL_StatusTypeDef status = HAL_UART_Transmit(&huart2, (uint8_t*)chanCmd, 9, 100);
+    HAL_StatusTypeDef status = HAL_UART_Transmit(&huart1, (uint8_t*)chanCmd, 9, 100);
     HAL_Delay(100);
     HAL_GPIO_WritePin(GPIOA, RF_Prog_Pin, GPIO_PIN_RESET);
     if(status!= HAL_OK)
@@ -267,7 +267,8 @@ int main(void)
   TM1637_display_digit(3,0);
   EE_Init();
   read_settings();
-
+  HAL_UART_Receive_IT(&huart2, &data, 1);
+  HAL_UART_Receive_IT(&huart1, &data, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -767,15 +768,16 @@ static void MX_USART1_UART_Init(void)
   huart1.Init.Parity = UART_PARITY_NONE;
   huart1.Init.Mode = UART_MODE_TX_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_8;
   huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_DMADISABLEONERROR_INIT;
+  huart1.AdvancedInit.DMADisableonRxError = UART_ADVFEATURE_DMA_DISABLEONRXERROR;
   if (HAL_UART_Init(&huart1) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
-  huart1.RxISR = UART_RxISR;
+//  huart1.RxISR = UART_RxISR;
   /* USER CODE END USART1_Init 2 */
 
 }
@@ -811,7 +813,7 @@ static void MX_USART2_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
-  huart2.RxISR = UART_RxISR;
+//  huart2.RxISR = UART_RxISR;
   /* USER CODE END USART2_Init 2 */
 
 }
@@ -832,7 +834,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, RF_Prog_Pin|P1_Pin|P2_Pin|CLK_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(RF_Prog_GPIO_Port, RF_Prog_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, P1_Pin|P2_Pin|CLK_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : Start_Pin */
   GPIO_InitStruct.Pin = Start_Pin;
@@ -1007,23 +1012,14 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
 //      g_Temperature = (g_Temperature*9 + (((g_ADCValue - ADC_0_DEGREE_VALUE)*366)/(ADC_36_6_DEGREE_VALUE - ADC_0_DEGREE_VALUE)) + 0)/10;
   }
 
-void UART_RxISR(UART_HandleTypeDef *huart)
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	 uint32_t isrflags   = READ_REG(huart->Instance->ISR);
-	 uint32_t cr1its     = READ_REG(huart->Instance->CR1);
-	 uint32_t cr3its     = READ_REG(huart->Instance->CR3);
-	 uint32_t errorflags = 0x00U;
-//	 uint32_t dmarequest = 0x00U;
 	 enum rxstates {rx_state_none, rx_state_pre_time, rx_state_main_time, rx_state_cool_time, rx_state_get_checksum};
 
 	 /* If no error occurs */
-	 errorflags = (isrflags & (uint32_t)(USART_ISR_PE | USART_ISR_FE | USART_ISR_ORE | USART_ISR_NE));
-	 if(errorflags == RESET)
 	 {
 		 /* UART in mode Receiver -------------------------------------------------*/
-		 if(((isrflags & USART_CR1_RXNEIE) != RESET) && ((cr1its & USART_CR1_RXNEIE) != RESET))
 		 {
-			 data = huart->Instance->RDR & (uint16_t)0x00FF;
 			 if ((data & 0x80)){
 			 		last_rx_address = (data >> 3U)&0x0f;
 			 		unsigned char addr_is_ok = 0;
@@ -1095,14 +1091,22 @@ void UART_RxISR(UART_HandleTypeDef *huart)
 			 	}
 		 }
 	 }
-	 else
-	 {
-		 rx_state= 0;
-		 huart->Instance->ISR = 0; // Clear Errors
-	 }
-	  /* Clear RXNE interrupt flag */
-	 __HAL_UART_SEND_REQ(huart, UART_RXDATA_FLUSH_REQUEST);
-//	 USART2->ISR = 0; // Clear Errors
+	 // VERY IMPORTANT: re-arm RX
+	 HAL_UART_Receive_IT(huart, &data, 1);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+//    if (huart == &huart2)
+    {
+        // Reset protocol decoder
+
+
+        rx_state = 0;
+
+        // VERY IMPORTANT: re-arm RX
+        HAL_UART_Receive_IT(huart, &data, 1);
+    }
 }
 
 

@@ -299,9 +299,9 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 	ATOMIC_SET_BIT(huart->Instance->CR3, USART_CR3_EIE);
 
   /* Set the Rx ISR function pointer according to the data word length */
-    huart->RxISR = UART_RxISR;
+//    huart->RxISR = UART_RxISR;
   /* Enable the UART Parity Error interrupt and Data Register Not Empty interrupt */
-    ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_PEIE | USART_CR1_RXNEIE);
+    ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_PEIE/* | USART_CR1_RXNEIE*/);
 
   /* USER CODE END USART1_MspInit 1 */
   }
@@ -340,9 +340,9 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
   	ATOMIC_SET_BIT(huart->Instance->CR3, USART_CR3_EIE);
 
     /* Set the Rx ISR function pointer according to the data word length */
-      huart->RxISR = UART_RxISR;
+//      huart->RxISR = UART_RxISR;
     /* Enable the UART Parity Error interrupt and Data Register Not Empty interrupt */
-      ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_PEIE | USART_CR1_RXNEIE);
+      ATOMIC_SET_BIT(huart->Instance->CR1, USART_CR1_PEIE /* | USART_CR1_RXNEIE*/);
   /* USER CODE END USART2_MspInit 1 */
   }
 

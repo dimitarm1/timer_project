@@ -413,7 +413,7 @@ int main(void)
 	case state_rf_channel:
 		//			flash_mode = 3;
 		if ((flash_counter /FLASH_DIVIDER) & 1) {
-			SetDisplayDataInt(rf_channel);
+			SetDisplayDataInt(ToBCD(rf_channel));
 		}
 		else {
 			SetDisplayDataInt(0xFFF5);
@@ -1355,7 +1355,7 @@ void ProcessButtons(void)
 						if (preset_cool_time < 9) preset_cool_time++;
 						break;
 					case mode_set_rf_channel:
-						rf_channel++;
+						if (rf_channel < 127) rf_channel++;
 						break;
 					default:
 						break;
@@ -1387,7 +1387,8 @@ void ProcessButtons(void)
 						if (preset_cool_time) preset_cool_time--;
 						break;
 					case mode_set_rf_channel:
-						rf_channel++;
+						if(rf_channel > 1) rf_channel--;
+						else rf_channel = 1;
 						break;
 					default:
 						break;

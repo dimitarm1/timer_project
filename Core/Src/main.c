@@ -868,41 +868,6 @@ void process_key(uint8_t key) {
 }
 
 
-
-void read_settings(void)
-{
-	uint8_t result = 0;
-	uint16_t  data;
-
-	result += EE_ReadVariable(ADDRESS_ADDRESSE,  &data);
-	controller_address = data;
-	result += EE_ReadVariable(ADDRESS_PRE_TIME,  &data);
-	preset_pre_time = data;
-	result += EE_ReadVariable(ADDRESS_COOL_TIME,  &data);
-	preset_cool_time = data;
-	result += EE_ReadVariable(ADDRESS_RF_CHANNEL,  &data);
-	rf_channel = data;
-	result += EE_ReadVariable(ADDRESS_TEMP_MIN,  &data);
-	temp_min_threshold = data;
-	result += EE_ReadVariable(ADDRESS_TEMP_MAX,  &data);
-	temp_max_threshold = data;
-
-	if(result)
-	{
-		// Set defaults
-		preset_pre_time = 7;
-		preset_cool_time = 3;
-		controller_address = 14;
-		temp_min_threshold = 17;
-		temp_max_threshold = 85;
-		rf_channel = 0;
-		work_hours[0] = 0;
-		work_hours[1] = 0;
-		work_hours[2] = 0;
-		write_settings();
-		write_stored_time();
-	}
-}
 void read_stored_time(void)
 {
 	uint16_t  data;
@@ -931,6 +896,42 @@ void read_stored_time(void)
 		work_hours[2] = 0;
 	}
 }
+void read_settings(void)
+{
+	uint8_t result = 0;
+	uint16_t  data;
+
+	result += EE_ReadVariable(ADDRESS_ADDRESSE,  &data);
+	controller_address = data;
+	result += EE_ReadVariable(ADDRESS_PRE_TIME,  &data);
+	preset_pre_time = data;
+	result += EE_ReadVariable(ADDRESS_COOL_TIME,  &data);
+	preset_cool_time = data;
+	result += EE_ReadVariable(ADDRESS_RF_CHANNEL,  &data);
+	rf_channel = data;
+	result += EE_ReadVariable(ADDRESS_TEMP_MIN,  &data);
+	temp_min_threshold = data;
+	result += EE_ReadVariable(ADDRESS_TEMP_MAX,  &data);
+	temp_max_threshold = data;
+	read_stored_time();
+
+	if(result)
+	{
+		// Set defaults
+		preset_pre_time = 7;
+		preset_cool_time = 3;
+		controller_address = 14;
+		temp_min_threshold = 17;
+		temp_max_threshold = 85;
+		rf_channel = 0;
+		work_hours[0] = 0;
+		work_hours[1] = 0;
+		work_hours[2] = 0;
+		write_settings();
+		write_stored_time();
+	}
+}
+
 
 void write_settings(void)
 {
@@ -1472,18 +1473,18 @@ void ProcessButtons(void)
 
 	if (prev_status != curr_status) {
 		if (curr_status == STATUS_WORKING) {
-//			if (1) {
-//				work_hours[2] += main_time;
-//				if (work_hours[2] > 59L) {
-//					work_hours[2] = work_hours[2] - 60;
-//					work_hours[1]++;
-//					if (work_hours[1] > 99L) {
-//						work_hours[1] = 0;
-//						work_hours[0]++;
-//					}
-//				}
-//				write_stored_time();
-//			}
+			if (controller_address != 15) {
+				work_hours[2] += main_time/60;
+				if (work_hours[2] > 59L) {
+					work_hours[2] = work_hours[2] - 60;
+					work_hours[1]++;
+					if (work_hours[1] > 99L) {
+						work_hours[1] = 0;
+						work_hours[0]++;
+					}
+				}
+				write_stored_time();
+			}
 			flash_mode = 0;
 //			set_lamps(100);
 			if((temp_min_threshold > 0) && (g_Temperature > 0) && (g_Temperature < 70)) // 70 degrees

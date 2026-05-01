@@ -1042,8 +1042,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			 		}
 			 		else if ((data & 0x07) == 1) //Command 1 - Start
 			 		{
-			 			pre_time = 0;
-			 			update_status();
+			 			if(main_time <= 2) { // Only use for test purposes
+			 				pre_time = 0;
+			 				update_status();
+			 			}
 			 		}
 			 		else if ((data & 0x07) == 2)  //Command 2 == Pre_time_set
 			 		{
